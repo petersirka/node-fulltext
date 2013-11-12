@@ -1,9 +1,12 @@
+'use strict';
+
 var path = require('path');
 var fs = require('fs');
 
 var VERSION = '1.0.0';
-var EXTENSION = '.ft';
+var EXTENSION = '.fulltext';
 var EXTENSION_TMP = '.ftt';
+var EXTENSION_DOCUMENT = '.json';
 var MAX_WRITESTREAM = 2;
 var MAX_READSTREAM = 4;
 var NEWLINE = '\n';
@@ -11,33 +14,76 @@ var STRING = 'string';
 var FUNCTION = 'function';
 var UNDEFINED = 'undefined';
 var BOOLEAN = 'boolean';
+var ENCODING = 'utf8';
 
-function Fulltext(name, directory) {
+if (typeof(setImmediate) === UNDEFINED) {
+	global.setImmediate = function(cb) {
+		process.nextTick(cb);
+	};
+}
+
+function Fulltext(name, directory, documents) {
 	this.name = name;
 	this.directory = directory;
 	this.isReady = false;
+	this.fs = new FulltextFile(name, directory, documents);
 }
 
-Fulltext.prototype.add = function(content, document, callback) {
+Fulltext.prototype.onAdd = function(id, keywords, document, callback) {
+	var self = this;
+	self.fs.add(id, keywords, document, callback);
+};
 
+Fulltext.prototype.onUpdate = function(id, keywords, document, callback) {
+	var self = this;
+	self.fs.update(id, keywords, document, callback);
+};
+
+Fulltext.prototype.onRemove = function(id, callback) {
+	var self = this;
+	self.fs.remove(id, callback);
+};
+
+Fulltext.prototype.onRead = function(id, callback) {
+	var self = this;
+	self.fs.read(id, callback);
+};
+
+Fulltext.prototype.onFind = function(search, options, callback) {
+	var self = this;
+	self.fs.find(search, options, callback);
+};
+
+Fulltext.prototype.add = function(content, document, callback, max) {
+	var self = this;
+	var id = new Date().getTime() + Math.random().toString(36).substring(4);
+	self.onAdd(id, find_keywords(content, max), document, callback);
+	return id;
 };
 
 Fulltext.prototype.read = function(id, callback) {
-
+	var self = this;
+	self.onRead(id, callback);
+	return self;
 };
 
 Fulltext.prototype.update = function(id, content, document, callback) {
-
+	var self = this;
+	self.onUpdate(id, keywords, document, callback);
+	return self;
 };
 
 Fulltext.prototype.remove = function(id, callback) {
-
+	var self = this;
+	self.onRemove(id, callback);
+	return self;
 };
 
-Fulltext.prototype.find = function(id, search, options, callback) {
-
+Fulltext.prototype.find = function(search, options, callback) {
+	var self = this;
+	self.onFind(search, options, callback);
+	return self;
 };
-
 
 function FulltextFile(name, directory, documents) {
 	this.directory = directory;
@@ -47,7 +93,9 @@ function FulltextFile(name, directory, documents) {
 }
 
 FulltextFile.prototype.add = function(id, keywords, document, callback) {
-	fs.appendFile(this.filename, id + ',' + keywords.join(',') + '\n');
+	var self = this;
+	fs.appendFile(self.filename, id + ',' + keywords.join(',') + '\n');
+	fs.appendFile(path.join(self.documents, id + EXTENSION_DOCUMENT), JSON.stringify(document));
 };
 
 FulltextFile.prototype.update = function(id, keywords, document, callback) {
@@ -61,7 +109,7 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 
 	reader.on('data', function(buffer) {
 
-		var buf = buffer.toString('utf8');
+		var buf = buffer.toString(ENCODING);
 		reader._buffer += buf;
 
 		var index = buf.indexOf(NEWLINE);
@@ -89,7 +137,8 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 
 	writer.on('close', function() {
 		fs.rename(temporary, self.filename, function(err) {
-			console.log('OK');
+			if (callback)
+				callback();
 		});
 	});
 
@@ -97,54 +146,258 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 		writer.end();
 	});
 
-	reader.resume();	
-
+	reader.resume();
+	return self;
 };
 
 FulltextFile.prototype.remove = function(id, callback) {
-
+	var self = this;
+	self.update(id, null, null, callback);
+	return self;
 };
 
 FulltextFile.prototype.read = function(id, callback) {
 
+	var self = this;
+	var filename = path.join(self.documents, id + EXTENSION_DOCUMENT);
+
+	fs.readFile(filename, function(err, data) {
+
+		if (err) {
+			callback(err, null);
+			return;
+		}
+
+		callback(null, JSON.parse(data.toString(ENCODING)));
+	});
+
+	return self;
+};
+
+FulltextFile.prototype.readall = function(id, callback) {
+
+	var self = this;
+	var output = [];
+
+	var fn = function() {
+
+		var first = id.shift();
+
+		if (typeof(first) === UNDEFINED) {
+			callback(output);
+			return;
+		}
+
+		self.read(first, function(err, json) {
+			output.push({ id : first, document: json });
+			setImmediate(fn);
+		});
+	};
+
+	fn();
+};
+
+// options.alternate = true | false;
+// options.strict = true | false;
+// options.max = 50;
+
+FulltextFile.prototype.find = function(search, options, callback) {
+
+	options = options || {};
+	options.max = options.max || 50;
+
+	var self = this;
+	var arr = [];
+	var keywords = find_keywords(search, options.alternate);
+	var length = keywords.length;
+	var count = 0;
+	var rating = {};
+
+	self.each(function(line) {
+
+		var index = line.indexOf(',');
+		var id = line.substring(0, index);
+		var all = line.substring(index + 1);
+		var isFinded = true;
+		var sum = 0;
+
+		for (var i = 0; i < length; i++) {
+			var keyword = keywords[i] + (options.strict ? '' : ',');
+			var indexer = all.indexOf(keyword);
+			if (indexer === -1) {
+				isFinded = false;
+				break;
+			}
+			sum += indexer;
+		}
+
+		if (isFinded) {
+			rating[id] = sum;
+			arr.push(id);
+			count++;
+		}
+
+		return count <= options.max;
+
+	}, function() {
+
+		if (arr.length === 0) {
+			callback([]);
+			return;
+		}
+
+		arr.sort(function(a, b) {
+			var ra = rating[a];
+			var rb = rating[b];
+			if (ra > rb)
+				return 1;
+			if (ra < rb)
+				return -1;
+			return 0;
+		});
+
+		self.readall(arr, callback);
+
+	});
+
+	return self;
 };
 
 FulltextFile.prototype.each = function(map, callback) {
 
 	var self = this;
 	var stream = fs.createReadStream(self.filename);
+	var arr = [];
+	var stop = false;
 
 	stream._buffer = '';
 
 	stream.on('data', function(buffer) {
 
-		var buf = buffer.toString('utf8');
+		if (stop)
+			return;
+
+		var buf = buffer.toString(ENCODING);
 		stream._buffer += buf;
 
 		var index = buf.indexOf(NEWLINE);
+
 		while (index !== -1) {
-			map(stream._buffer.substring(0, index));
+
+			stop = !map(stream._buffer.substring(0, index));
+
+			if (stop) {
+				stream.resume();
+				stream = null;
+				break;
+			}
+
 			stream._buffer = stream._buffer.substring(index + 1);
 			index = stream._buffer.indexOf('\n');
 		}
 
 	});
 
-	if (callback)
-		stream.on('end', callback);
-
+	stream.on('end', callback);
 	stream.resume();
+
+	return self;
 };
 
 function noop() {}
 
-var file = new FulltextFile('clanky', '/users/petersirka/desktop/test/', '/users/petersirka/desktop/test/documents/');
-//file.add('1', ['mama', 'peter', 'janko', 'mrkvička'], {});
-/*
-file.each(function(line) {
-	console.log('#', line);
-}, function() {
-	console.log('OK');
-});
-*/
-file.update('1', ['neviem', '1', 'tip'], { name: 'Super' });
+if (!String.prototype.removeDiacritics) {
+	String.prototype.removeDiacritics = function() {
+		var str = this.toString();
+	    var dictionaryA = ['á', 'ä', 'č', 'ď', 'é', 'ě', 'ť', 'ž', 'ú', 'ů', 'ü', 'í', 'ï', 'ô', 'ó', 'ö', 'š', 'ľ', 'ĺ', 'ý', 'ÿ', 'č', 'ř'];
+	    var dictionaryB = ['a', 'a', 'c', 'd', 'e', 'e', 't', 'z', 'u', 'u', 'u', 'i', 'i', 'o', 'o', 'o', 's', 'l', 'l', 'y', 'y', 'c', 'r'];
+	    var buf = '';
+	    var length = str.length;
+	    for (var i = 0; i < length; i++) {
+	        var c = str[i];
+	        var isUpper = false;
+
+	        var index = dictionaryA.indexOf(c);
+	        if (index === -1) {
+	            index = dictionaryA.indexOf(c.toLowerCase());
+	            isUpper = true;
+	        }
+
+	        if (index === -1) {
+	            buf += c;
+	            continue;
+	        }
+
+	        c = dictionaryB[index];
+	        if (isUpper)
+	            c = c.toUpperCase();
+
+	        buf += c;
+	    }
+	    return buf;
+	};
+}
+
+if (!String.prototype.trim) {
+	String.prototype.trim = function() {
+		return this.replace(/^[\s]+|[\s]+$/g, '');
+	};
+}
+
+
+function find_keywords(content, alternative, count, max, min) {
+
+	var words = content.replace(/(<([^>]+)>)/ig, '').trim().replace(/\n|\t/g, ' ').split(' ');
+	var length = words.length;
+	var dic = {};
+	var counter = 0;
+
+	min = min || 2;
+	count = count || 150;
+	max = max || 20;
+
+	for (var i = 0; i < length; i++) {
+		var word = words[i].trim();
+
+		if (word.length < min)
+			continue;
+
+		if (counter >= count)
+			break;
+
+		word = word.toLowerCase().removeDiacritics().replace(/\W|_/g, '').replace(/y/g, 'i');
+
+		if (alternative)
+			word = word.substring(0, (word.length / 100) * 80);
+
+		if (word.length < min || word.length > max)
+			continue;
+
+		if (typeof(dic[word]) === UNDEFINED)
+			dic[word] = 1;
+		else
+			dic[word]++;
+
+		counter++;
+	}
+
+	var keys = Object.keys(dic);
+
+	keys.sort(function(a, b) {
+
+		var countA = dic[a];
+		var countB = dic[b];
+
+		if (countA > countB)
+			return -1;
+
+		if (countA < countB)
+			return 1;
+
+		return 0;
+	});
+
+	return keys;
+}
+
+module.exports = Fulltext;
