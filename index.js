@@ -56,7 +56,7 @@ Fulltext.prototype.onFind = function(search, options, callback) {
 
 Fulltext.prototype.add = function(content, document, callback, max) {
 	var self = this;
-	var id = new Date().getTime() + Math.random().toString(36).substring(4);
+	var id = new Date().getTime();
 	self.onAdd(id, find_keywords(content, max), document, callback);
 	return id;
 };
@@ -200,11 +200,15 @@ FulltextFile.prototype.readall = function(id, callback) {
 // options.alternate = true | false;
 // options.strict = true | false;
 // options.max = 50;
+// options.
 
 FulltextFile.prototype.find = function(search, options, callback) {
 
 	options = options || {};
 	options.max = options.max || 50;
+
+	if (typeof(options.strict) === UNDEFINED)
+		options.strict = true;
 
 	var self = this;
 	var arr = [];
@@ -220,24 +224,31 @@ FulltextFile.prototype.find = function(search, options, callback) {
 		var all = line.substring(index + 1);
 		var isFinded = true;
 		var sum = 0;
+		var counter = 0;
+		var ln = line.length;
 
 		for (var i = 0; i < length; i++) {
-			var keyword = keywords[i] + (options.strict ? '' : ',');
+			var keyword = keywords[i];
 			var indexer = all.indexOf(keyword);
+
 			if (indexer === -1) {
-				isFinded = false;
-				break;
-			}
-			sum += indexer;
+				counter++;
+				sum += ln;
+				if (options.strict) {
+					isFinded = false;
+					break;
+				}
+			} else
+				sum += indexer;
 		}
 
 		if (isFinded) {
-			rating[id] = sum;
+			rating[id] = sum * counter;
 			arr.push(id);
 			count++;
 		}
 
-		return count <= options.max;
+		return count < options.max;
 
 	}, function() {
 
@@ -298,6 +309,10 @@ FulltextFile.prototype.each = function(map, callback) {
 
 	});
 
+	stream.on('error', function() {
+		callback();
+	});
+
 	stream.on('end', callback);
 	stream.resume();
 
@@ -344,17 +359,20 @@ if (!String.prototype.trim) {
 	};
 }
 
-
 function find_keywords(content, alternative, count, max, min) {
-
-	var words = content.replace(/(<([^>]+)>)/ig, '').trim().replace(/\n|\t/g, ' ').split(' ');
-	var length = words.length;
-	var dic = {};
-	var counter = 0;
 
 	min = min || 2;
 	count = count || 150;
 	max = max || 20;
+
+	var words = content.removeDiacritics().toLowerCase().replace(/y/g, 'i').match(/\w+/g);
+
+	if (words === null)
+		words = [];
+
+	var length = words.length;
+	var dic = {};
+	var counter = 0;
 
 	for (var i = 0; i < length; i++) {
 		var word = words[i].trim();

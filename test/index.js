@@ -1,5 +1,5 @@
 var Fulltext = require('../index');
-var fulltext = new Fulltext('clanky', '/users/petersirka/desktop/test/', '/users/petersirka/desktop/test/documents/');
+var fulltext = new Fulltext('markdown', '/users/petersirka/desktop/test/', '/users/petersirka/desktop/test/documents/');
 var path = require('path');
 var fs = require('fs');
 var UNDEFINED = 'undefined';
@@ -17,6 +17,8 @@ function add() {
 	});
 }
 
-fulltext.find('facebook', { alternate: false }, function(docs) {
+fulltext.find('nosql database embedded', { max: 3 }, function(docs) {
 	console.log(docs);
 });
+
+//add();
