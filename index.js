@@ -2,8 +2,10 @@
 
 var path = require('path');
 var fs = require('fs');
+var crypto = require('crypto');
 
-var EXTENSION = '.fulltext';
+var EXTENSION = '.ft';
+var EXTENSION_CACHE = '.ftc';
 var EXTENSION_TMP = '.ftt';
 var EXTENSION_DOCUMENT = '.json';
 var NEWLINE = '\n';
@@ -12,6 +14,8 @@ var FUNCTION = 'function';
 var UNDEFINED = 'undefined';
 var BOOLEAN = 'boolean';
 var ENCODING = 'utf8';
+
+var REG_TAG = /(<([^>]+)>)/ig;
 
 if (typeof(setImmediate) === UNDEFINED) {
 	global.setImmediate = function(cb) {
@@ -54,7 +58,7 @@ Fulltext.prototype.onFind = function(search, options, callback) {
 Fulltext.prototype.add = function(content, document, callback, max) {
 	var self = this;
 	var id = new Date().getTime();
-	self.onAdd(id, find_keywords(content, max), document, callback);
+	self.onAdd(id, find_keywords(content.replace(REG_TAG, ' '), max), document, callback);
 	return id;
 };
 
@@ -86,6 +90,7 @@ function FulltextFile(name, directory, documents) {
 	this.directory = directory;
 	this.documents = documents;
 	this.filename = path.join(directory, name + EXTENSION);
+	this.filenameCache = path.join(directory, name + EXTENSION_CACHE);
 	this.status = 0;
 	this.pendingWrite = [];
 	this.pendingRead = [];
@@ -181,7 +186,7 @@ FulltextFile.prototype.read = function(id, callback) {
 	return self;
 };
 
-FulltextFile.prototype.readall = function(id, callback) {
+FulltextFile.prototype.readall = function(id, count, callback) {
 
 	var self = this;
 	var output = [];
@@ -191,7 +196,7 @@ FulltextFile.prototype.readall = function(id, callback) {
 		var first = id.shift();
 
 		if (typeof(first) === UNDEFINED) {
-			callback(output);
+			callback(count, output);
 			return;
 		}
 
@@ -204,9 +209,70 @@ FulltextFile.prototype.readall = function(id, callback) {
 	fn();
 };
 
+FulltextFile.prototype.cacheAdd = function(search, options, arr) {
+	var self = this;
+	var hash = crypto.createHash('md5');
+	hash.update(search + JSON.stringify(options), ENCODING);
+	var id = hash.digest('hex');
+	fs.appendFile(self.filenameCache, id + '=' + arr.length + ',' + arr.join(',') + '\n');
+	return self;
+};
+
+FulltextFile.prototype.cacheRead = function(search, options, callback) {
+	var self = this;
+	var hash = crypto.createHash('md5');
+
+	hash.update(search + JSON.stringify(options), ENCODING);
+
+	var id = hash.digest('hex');
+	var stream = fs.createReadStream(self.filenameCache);
+	var stop = false;
+
+	stream._buffer = '';
+
+	stream.on('data', function(buffer) {
+
+		if (stop)
+			return;
+
+		var buf = buffer.toString(ENCODING);
+		stream._buffer += buf;
+
+		var index = buf.indexOf(NEWLINE);
+
+		while (index !== -1) {
+
+			var line = stream._buffer.substring(0, index);
+			var beg = line.indexOf('=');
+
+			if (line.substring(0, beg) === id) {
+				var sum = parseInt(line.substring(beg + 1, line.indexOf(',')));
+
+				self.readall(skip(line, options.take || 0, options.skip || 50).split(','), sum, callback);
+				stream._buffer = null;
+				stream.resume();
+				stream = null;
+				stop = true;
+				break;
+			}
+
+			stream._buffer = stream._buffer.substring(index + 1);
+			index = stream._buffer.indexOf('\n');
+		}
+
+	});
+
+	stream.on('error', function() {
+		callback(null, 0);
+	});
+
+	stream.resume();
+};
+
 // options.alternate = true | false;
 // options.strict = true | false;
-// options.max = 50;
+// options.skip = 0;
+// options.take = 50;
 FulltextFile.prototype.find = function(search, options, callback) {
 
 	var self = this;
@@ -217,70 +283,85 @@ FulltextFile.prototype.find = function(search, options, callback) {
 	}
 
 	options = options || {};
-	options.max = options.max || 50;
+	options.take = options.take || 10;
+	options.skip = options.skip || 0;
 
 	if (typeof(options.strict) === UNDEFINED)
 		options.strict = true;
 
-	var arr = [];
-	var keywords = find_keywords(search, options.alternate);
-	var length = keywords.length;
-	var count = 0;
-	var rating = {};
+	self.cacheRead(search, options, function(arr, count) {
 
-	self.each(function(line) {
-
-		var index = line.indexOf(',');
-		var id = line.substring(0, index);
-		var all = line.substring(index + 1);
-		var isFinded = true;
-		var sum = 0;
-		var counter = 0;
-		var ln = line.length;
-
-		for (var i = 0; i < length; i++) {
-			var keyword = keywords[i];
-			var indexer = all.indexOf(keyword);
-
-			if (indexer === -1) {
-				counter++;
-				sum += ln;
-				if (options.strict) {
-					isFinded = false;
-					break;
-				}
-			} else
-				sum += indexer;
-		}
-
-		if (isFinded) {
-			rating[id] = sum * counter;
-			arr.push(id);
-			count++;
-		}
-
-		return count < options.max;
-
-	}, function() {
-
-		self.done();
-
-		if (arr.length === 0) {
-			callback([]);
+		if (arr !== null && arr.length > 0) {
+			self.readall(arr, count, callback);
 			return;
 		}
 
-		arr.sort(function(a, b) {
-			var ra = rating[a];
-			var rb = rating[b];
-			if (ra > rb)
-				return 1;
-			if (ra < rb)
-				return -1;
-			return 0;
-		});
+		arr = [];
+		var keywords = find_keywords(search, options.alternate);
+		var length = keywords.length;
+		var count = 0;
+		var rating = {};
+		var sumarize = 0;
 
-		self.readall(arr, callback);
+		self.each(function(line) {
+
+			var index = line.indexOf(',');
+			var id = line.substring(0, index);
+			var all = line.substring(index + 1);
+			var isFinded = true;
+			var sum = 0;
+			var counter = 1;
+			var ln = line.length;
+
+			for (var i = 0; i < length; i++) {
+				var keyword = keywords[i];
+				var indexer = all.indexOf(keyword);
+
+				if (indexer === -1) {
+					counter++;
+					sum += ln;
+					if (options.strict) {
+						isFinded = false;
+						break;
+					}
+				} else
+					sum += indexer;
+			}
+
+			if (isFinded) {
+				sumarize++;
+				rating[id] = sum * counter;
+				arr.push(id);
+				count++;
+			}
+
+			return true;
+
+		}, function() {
+
+			self.done();
+
+			if (arr.length === 0) {
+				self.cacheAdd(search, options, []);
+				callback([]);
+				return;
+			}
+
+			arr.sort(function(a, b) {
+				var ra = rating[a];
+				var rb = rating[b];
+				if (ra > rb)
+					return 1;
+				if (ra < rb)
+					return -1;
+				return 0;
+			});
+
+			self.cacheAdd(search, options, arr);
+			var from = options.skip * options.take;
+			self.readall(arr.slice(from, from + options.take), arr.length, callback);
+
+		});
 
 	});
 
@@ -359,6 +440,39 @@ FulltextFile.prototype.done = function () {
 
 function noop() {}
 
+function skip(str, skip, take) {
+
+	var index = -1;
+	var counter = -1;
+	var beg = 0;
+	var end = 0;
+
+	take += skip;
+
+	do {
+
+		index = str.indexOf(',', index + 1);
+		counter++;
+
+		if (counter === skip) {
+			beg = index + 1;
+			continue;
+		}
+
+		if (counter === take) {
+			end = index;
+			break;
+		}
+
+	}
+	while (index !== -1);
+
+	if (end < 1)
+		end = str.length;
+
+	return str.substring(beg, end);
+}
+
 if (!String.prototype.removeDiacritics) {
 	String.prototype.removeDiacritics = function() {
 		var str = this.toString();
@@ -400,7 +514,7 @@ if (!String.prototype.trim) {
 function find_keywords(content, alternative, count, max, min) {
 
 	min = min || 2;
-	count = count || 150;
+	count = count || 200;
 	max = max || 20;
 
 	var words = content.removeDiacritics().toLowerCase().replace(/y/g, 'i').match(/\w+/g);
