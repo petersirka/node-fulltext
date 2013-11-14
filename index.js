@@ -3,12 +3,9 @@
 var path = require('path');
 var fs = require('fs');
 
-var VERSION = '1.0.0';
 var EXTENSION = '.fulltext';
 var EXTENSION_TMP = '.ftt';
 var EXTENSION_DOCUMENT = '.json';
-var MAX_WRITESTREAM = 2;
-var MAX_READSTREAM = 4;
 var NEWLINE = '\n';
 var STRING = 'string';
 var FUNCTION = 'function';
@@ -90,6 +87,8 @@ function FulltextFile(name, directory, documents) {
 	this.documents = documents;
 	this.filename = path.join(directory, name + EXTENSION);
 	this.status = 0;
+	this.pendingWrite = [];
+	this.pendingRead = [];
 }
 
 FulltextFile.prototype.add = function(id, keywords, document, callback) {
@@ -101,6 +100,12 @@ FulltextFile.prototype.add = function(id, keywords, document, callback) {
 FulltextFile.prototype.update = function(id, keywords, document, callback) {
 
 	var self = this;
+
+	if (!self.canWrite()) {
+		self.pendingWrite.push(function() { this.update(id, keywords, document, callback); });
+		return self;
+	}
+
 	var temporary = path.join(self.directory, self.name + EXTENSION_TMP);
 	var reader = fs.createReadStream(self.filename);
 	var writer = fs.createWriteStream(temporary);
@@ -137,12 +142,14 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 
 	writer.on('close', function() {
 		fs.rename(temporary, self.filename, function(err) {
+			self.done();
 			if (callback)
 				callback();
 		});
 	});
 
 	reader.on('end', function() {
+		self.done();
 		writer.end();
 	});
 
@@ -200,9 +207,14 @@ FulltextFile.prototype.readall = function(id, callback) {
 // options.alternate = true | false;
 // options.strict = true | false;
 // options.max = 50;
-// options.
-
 FulltextFile.prototype.find = function(search, options, callback) {
+
+	var self = this;
+
+	if (!self.canRead()) {
+		self.pendingRead.push(function() { this.find(search, options, callback); });
+		return self;
+	}
 
 	options = options || {};
 	options.max = options.max || 50;
@@ -210,7 +222,6 @@ FulltextFile.prototype.find = function(search, options, callback) {
 	if (typeof(options.strict) === UNDEFINED)
 		options.strict = true;
 
-	var self = this;
 	var arr = [];
 	var keywords = find_keywords(search, options.alternate);
 	var length = keywords.length;
@@ -251,6 +262,8 @@ FulltextFile.prototype.find = function(search, options, callback) {
 		return count < options.max;
 
 	}, function() {
+
+		self.done();
 
 		if (arr.length === 0) {
 			callback([]);
@@ -315,6 +328,31 @@ FulltextFile.prototype.each = function(map, callback) {
 
 	stream.on('end', callback);
 	stream.resume();
+
+	return self;
+};
+
+FulltextFile.prototype.canRead = function(fn) {
+	return this.pendingWrite.length === 0;
+};
+
+FulltextFile.prototype.canWrite = function() {
+	return this.pendingWrite.length === 0;
+};
+
+FulltextFile.prototype.done = function () {
+
+	var self = this;
+
+	if (self.pendingWrite.length > 0) {
+		self.pendingWrite.shift();
+		return;
+	}
+
+	if (self.pendingRead.length > 0) {
+		self.pendingRead.shift();
+		return;
+	}
 
 	return self;
 };

@@ -17,7 +17,7 @@ function add() {
 	});
 }
 
-fulltext.find('nosql database embedded', { max: 3 }, function(docs) {
+fulltext.find('nosql database embedded', { max: 5 }, function(docs) {
 	console.log(docs);
 });
 
