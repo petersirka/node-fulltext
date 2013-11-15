@@ -58,7 +58,14 @@ Fulltext.prototype.onFind = function(search, options, callback) {
 Fulltext.prototype.add = function(content, document, callback, max) {
 	var self = this;
 	var id = new Date().getTime();
+
 	self.onAdd(id, find_keywords(content.replace(REG_TAG, ' '), max), document, callback);
+	clearInterval(self.interval);
+
+	self.interval = setTimeout(function() {
+		self.fs.cacheRemove();
+	}, 3000);
+
 	return id;
 };
 
@@ -195,6 +202,11 @@ FulltextFile.prototype.readall = function(id, count, callback) {
 
 		var first = id.shift();
 
+		if (first === '') {
+			fn();
+			return;
+		}
+
 		if (typeof(first) === UNDEFINED) {
 			callback(count, output);
 			return;
@@ -212,19 +224,28 @@ FulltextFile.prototype.readall = function(id, count, callback) {
 FulltextFile.prototype.cacheAdd = function(search, options, arr) {
 	var self = this;
 	var hash = crypto.createHash('md5');
+
 	hash.update(search + JSON.stringify(options), ENCODING);
 	var id = hash.digest('hex');
+
 	fs.appendFile(self.filenameCache, id + '=' + arr.length + ',' + arr.join(',') + '\n');
+
 	return self;
 };
 
-FulltextFile.prototype.cacheRead = function(search, options, callback) {
+FulltextFile.prototype.cacheRemove = function() {
+	var self = this;
+	fs.unlink(self.filenameCache, noop);
+	return self;
+};
+
+FulltextFile.prototype.cacheRead = function(search, options, callback, skip, take) {
 	var self = this;
 	var hash = crypto.createHash('md5');
 
 	hash.update(search + JSON.stringify(options), ENCODING);
-
 	var id = hash.digest('hex');
+
 	var stream = fs.createReadStream(self.filenameCache);
 	var stop = false;
 
@@ -246,14 +267,15 @@ FulltextFile.prototype.cacheRead = function(search, options, callback) {
 			var beg = line.indexOf('=');
 
 			if (line.substring(0, beg) === id) {
-				var sum = parseInt(line.substring(beg + 1, line.indexOf(',')));
 
-				self.readall(skip(line, options.take || 0, options.skip || 50).split(','), sum, callback);
+				var sum = parseInt(line.substring(beg + 1, line.indexOf(',')));
+				self.readall(skipcomma(line.substring(beg + 1), skip || 0, take || 50).split(','), sum, callback);
 				stream._buffer = null;
 				stream.resume();
 				stream = null;
 				stop = true;
 				break;
+
 			}
 
 			stream._buffer = stream._buffer.substring(index + 1);
@@ -262,8 +284,13 @@ FulltextFile.prototype.cacheRead = function(search, options, callback) {
 
 	});
 
+	stream.on('end', function() {
+		if (!stop)
+			callback(0, null);
+	});
+
 	stream.on('error', function() {
-		callback(null, 0);
+		callback(0, null);
 	});
 
 	stream.resume();
@@ -283,16 +310,25 @@ FulltextFile.prototype.find = function(search, options, callback) {
 	}
 
 	options = options || {};
-	options.take = options.take || 10;
-	options.skip = options.skip || 0;
+
+	var take = options.take || 10;
+	var skip = options.skip || 0;
 
 	if (typeof(options.strict) === UNDEFINED)
 		options.strict = true;
 
-	self.cacheRead(search, options, function(arr, count) {
+	if (options.take)
+		delete options.take;
 
-		if (arr !== null && arr.length > 0) {
-			self.readall(arr, count, callback);
+	if (options.skip)
+		delete options.skip;
+
+	search = search.trim().replace(/\t|\n/g, ' ');
+
+	self.cacheRead(search, options, function(count, arr) {
+
+		if (arr !== null) {
+			callback(count, arr);
 			return;
 		}
 
@@ -358,12 +394,11 @@ FulltextFile.prototype.find = function(search, options, callback) {
 			});
 
 			self.cacheAdd(search, options, arr);
-			var from = options.skip * options.take;
-			self.readall(arr.slice(from, from + options.take), arr.length, callback);
+			self.readall(arr.slice(skip, skip + take), arr.length, callback);
 
 		});
 
-	});
+	}, skip, take);
 
 	return self;
 };
@@ -440,11 +475,12 @@ FulltextFile.prototype.done = function () {
 
 function noop() {}
 
-function skip(str, skip, take) {
+function skipcomma(str, skip, take) {
 
 	var index = -1;
 	var counter = -1;
-	var beg = 0;
+	var length = str.length;
+	var beg = length;
 	var end = 0;
 
 	take += skip;
@@ -455,6 +491,10 @@ function skip(str, skip, take) {
 		counter++;
 
 		if (counter === skip) {
+			
+			if (index === -1)
+				break;
+
 			beg = index + 1;
 			continue;
 		}
@@ -468,7 +508,10 @@ function skip(str, skip, take) {
 	while (index !== -1);
 
 	if (end < 1)
-		end = str.length;
+		end = length;
+	
+	if (beg >= length)
+		return '';
 
 	return str.substring(beg, end);
 }
@@ -571,3 +614,4 @@ function find_keywords(content, alternative, count, max, min) {
 }
 
 module.exports = Fulltext;
+exports.keywords = find_keywords;
