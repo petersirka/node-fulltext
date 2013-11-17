@@ -4,9 +4,9 @@ var path = require('path');
 var fs = require('fs');
 var crypto = require('crypto');
 
-var EXTENSION = '.ft';
-var EXTENSION_CACHE = '.ftc';
-var EXTENSION_TMP = '.ftt';
+var EXTENSION = '.fulltext';
+var EXTENSION_CACHE = '.fulltext-cache';
+var EXTENSION_TMP = '.fulltext-tmp';
 var EXTENSION_DOCUMENT = '.json';
 var NEWLINE = '\n';
 var STRING = 'string';
@@ -67,6 +67,10 @@ Fulltext.prototype.add = function(content, document, callback, max) {
 	}, 3000);
 
 	return id;
+};
+
+Fulltext.prototype.keywords = function(content, alternative, count, max, min) {
+	return find_keywords(contet, alternative, count, max, min);
 };
 
 Fulltext.prototype.read = function(id, callback) {
@@ -491,7 +495,7 @@ function skipcomma(str, skip, take) {
 		counter++;
 
 		if (counter === skip) {
-			
+
 			if (index === -1)
 				break;
 
@@ -509,7 +513,7 @@ function skipcomma(str, skip, take) {
 
 	if (end < 1)
 		end = length;
-	
+
 	if (beg >= length)
 		return '';
 
@@ -615,3 +619,7 @@ function find_keywords(content, alternative, count, max, min) {
 
 module.exports = Fulltext;
 exports.keywords = find_keywords;
+
+exports.load = function(name, directory, documents) {
+	return new Fulltext(name, directory, documents);
+};
