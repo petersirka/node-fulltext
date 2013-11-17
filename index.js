@@ -45,6 +45,11 @@ Fulltext.prototype.onRemove = function(id, callback) {
 	self.fs.remove(id, callback);
 };
 
+Fulltext.prototype.onDrop = function(callback) {
+	var self = this;
+	self.fs.drop(callback);
+};
+
 Fulltext.prototype.onRead = function(id, callback) {
 	var self = this;
 	self.fs.read(id, callback);
@@ -88,6 +93,12 @@ Fulltext.prototype.update = function(id, content, document, callback) {
 Fulltext.prototype.remove = function(id, callback) {
 	var self = this;
 	self.onRemove(id, callback);
+	return self;
+};
+
+Fulltext.prototype.drop = function(callback) {
+	var self = this;
+	self.onDrop(id, callback);
 	return self;
 };
 
@@ -617,9 +628,13 @@ function find_keywords(content, alternative, count, max, min) {
 	return keys;
 }
 
-module.exports = Fulltext;
+exports.Fulltext = Fulltext;
 exports.keywords = find_keywords;
 
 exports.load = function(name, directory, documents) {
+	return new Fulltext(name, directory, documents);
+};
+
+exports.init = function(name, directory, documents) {
 	return new Fulltext(name, directory, documents);
 };
