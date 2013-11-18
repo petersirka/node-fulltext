@@ -638,3 +638,29 @@ exports.load = function(name, directory, documents) {
 exports.init = function(name, directory, documents) {
 	return new Fulltext(name, directory, documents);
 };
+/*
+setTimeout(function() {
+	
+Framework.prototype.fulltext = function(name) {
+
+	var self = this;
+	var db = self.databases['fulltext-' + name];
+
+	if (typeof(db) !== UNDEFINED)
+		return db;
+
+	var docs = path.join(directory, this.config['directory-databases'], name);
+	var Fulltext = require('./fulltext').Fulltext;
+
+	db = new Fulltext(name, path.join(directory, this.config['directory-databases']), docs);
+	self.databases['fulltext-' + name] = db;
+
+	if (fs.existsSync(docs))
+		return;
+
+	fs.mkdirSync(docs);
+	return db;
+};
+
+
+}, 1000);*/
