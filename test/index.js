@@ -1,5 +1,5 @@
 var Fulltext = require('../index');
-var fulltext = new Fulltext('markdown', '/users/petersirka/desktop/test/', '/users/petersirka/desktop/test/documents/');
+var fulltext = Fulltext.load('markdown', '/users/petersirka/desktop/test/', '/users/petersirka/desktop/test/documents/');
 var path = require('path');
 var fs = require('fs');
 var UNDEFINED = 'undefined';
@@ -45,10 +45,11 @@ fulltext.find('nosql database embedded', { max: 5 }, function(docs) {
 */
 
 //console.log(url);
-//add_url();
+add_url();
 
 //add();
-
+/*
 fulltext.find('mail', { take: 10, skip: 0 }, function(count, docs) {
 	console.log(docs);
 });
+*/
