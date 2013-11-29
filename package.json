@@ -1,9 +1,9 @@
 {
     "name": "fulltext",
-    "version": "0.0.0-1",
+    "version": "1.0.0",
     "description": "Full text search engine for node.js",
     "main": "./index.js",
-    "keywords": [ "fulltext", "search"],
+    "keywords": [ "fulltext", "search", "searching", "web", "database"],
     "engines": {
         "node": ">=0.8.0"
     },
