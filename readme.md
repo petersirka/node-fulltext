@@ -10,7 +10,8 @@ $ npm install fulltext
 
 ```js
 
-var fulltext = require('fulltext').load('blogs', 'directory-database', 'directory-database/documents');
+var Fulltext = require('fulltext');
+var fulltext = Fulltext.load('blogs', 'directory-database', 'directory-database/documents');
 
 var id1 = fulltext.add('My first blog', { title: 'Blog 01', created: new Date() });
 var id2 = fulltext.add('My second blog', { title: 'Blog 02', created: new Date() });
