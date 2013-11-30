@@ -64,7 +64,13 @@ Fulltext.prototype.add = function(content, document, callback, max) {
 	var self = this;
 	var id = new Date().getTime();
 
-	self.onAdd(id, find_keywords(content.replace(REG_TAG, ' '), max), document, callback);
+	if (typeof(callback) === 'number') {
+		var tmp = max;
+		max = callback;
+		callback = tmp;
+	}
+
+	self.onAdd(id, find_keywords(content.replace(REG_TAG, ' '), false, max), document, callback);
 	clearInterval(self.interval);
 
 	self.interval = setTimeout(function() {
@@ -98,7 +104,7 @@ Fulltext.prototype.remove = function(id, callback) {
 
 Fulltext.prototype.drop = function(callback) {
 	var self = this;
-	self.onDrop(id, callback);
+	self.onDrop(callback);
 	return self;
 };
 
