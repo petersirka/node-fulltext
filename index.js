@@ -23,30 +23,63 @@ if (typeof(setImmediate) === UNDEFINED) {
 	};
 }
 
-function Fulltext(name, directory, documents) {
+function Fulltext(name, directory) {
 	this.name = name;
 	this.directory = directory;
 	this.isReady = false;
-	this.fs = new FulltextFile(name, directory, documents);
+	this.fs = new FulltextFile(this, name, directory, path.join(directory, name));
+	this.isReady = false;
 }
 
 Fulltext.prototype.onAdd = function(id, keywords, document, callback) {
 	var self = this;
+
+	if (!self.isReady) {
+		setTimeout(function() {
+			self.onAdd(id, keywords, document, callback);
+		}, 500);
+		return;
+	}
+
 	self.fs.add(id, keywords, document, callback);
 };
 
 Fulltext.prototype.onUpdate = function(id, keywords, document, callback) {
 	var self = this;
+
+	if (!self.isReady) {
+		setTimeout(function() {
+			self.onUpdate(id, keywords, document, callback);
+		}, 500);
+		return;
+	}
+
 	self.fs.update(id, keywords, document, callback);
 };
 
 Fulltext.prototype.onRemove = function(id, callback) {
 	var self = this;
+
+	if (!self.isReady) {
+		setTimeout(function() {
+			self.onRemove(id, callback);
+		}, 500);
+		return;
+	}
+
 	self.fs.remove(id, callback);
 };
 
 Fulltext.prototype.onDrop = function(callback) {
 	var self = this;
+
+	if (!self.isReady) {
+		setTimeout(function() {
+			self.onDrop(callback);
+		}, 500);
+		return;
+	}
+
 	self.fs.drop(callback);
 };
 
@@ -114,7 +147,7 @@ Fulltext.prototype.find = function(search, options, callback) {
 	return self;
 };
 
-function FulltextFile(name, directory, documents) {
+function FulltextFile(engine, name, directory, documents) {
 	this.directory = directory;
 	this.documents = documents;
 	this.filename = path.join(directory, name + EXTENSION);
@@ -122,12 +155,27 @@ function FulltextFile(name, directory, documents) {
 	this.status = 0;
 	this.pendingWrite = [];
 	this.pendingRead = [];
+	this.engine = engine;
+
+	fs.exists(documents, function(e) {
+		if (e) {
+			engine.isReady = true;
+			return;
+		}
+
+		fs.mkdir(documents, function() {
+			engine.isReady = true;
+		});
+	});
 }
 
 FulltextFile.prototype.add = function(id, keywords, document, callback) {
 	var self = this;
 	fs.appendFile(self.filename, id + ',' + keywords.join(',') + '\n');
 	fs.appendFile(path.join(self.documents, id + EXTENSION_DOCUMENT), JSON.stringify(document));
+
+	if (callback)
+		setImmediate(callback);
 };
 
 FulltextFile.prototype.update = function(id, keywords, document, callback) {
@@ -187,6 +235,29 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 	});
 
 	reader.resume();
+	return self;
+};
+
+FulltextFile.prototype.drop = function(callback) {
+	var self = this;
+
+	fs.unlink(self.filename, noop);
+	fs.unlink(self.filenameCache, noop);
+
+	fs.readdir(self.documents, function(err, arr) {
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		arr.waiting(function(filename, next) {
+			fs.unlink(path.join(self.documents, filename), next);
+		}, function() {
+			callback(null);
+		});
+	});
+
 	return self;
 };
 
@@ -400,7 +471,7 @@ FulltextFile.prototype.find = function(search, options, callback) {
 
 			if (arr.length === 0) {
 				self.cacheAdd(search, options, []);
-				callback([]);
+				callback(0, []);
 				return;
 			}
 
@@ -632,6 +703,26 @@ function find_keywords(content, alternative, count, max, min) {
 	});
 
 	return keys;
+}
+
+if (!Array.prototype.waiting) {
+	Array.prototype.waiting = function(onItem, callback) {
+
+		var self = this;
+		var item = self.shift();
+
+		if (typeof(item) === UNDEFINED) {
+			if (callback)
+				callback();
+			return;
+		}
+
+		onItem.call(self, item, function() {
+			self.waiting(onItem, callback);
+		});
+
+		return self;
+	};
 }
 
 exports.Fulltext = Fulltext;
