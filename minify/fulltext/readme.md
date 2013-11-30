@@ -11,7 +11,7 @@ $ npm install fulltext
 ```js
 
 var Fulltext = require('fulltext');
-var fulltext = Fulltext.load('blogs', 'directory-database', 'directory-database/documents');
+var fulltext = Fulltext.load('blogs', 'directory-database');
 
 var id1 = fulltext.add('My first blog', { title: 'Blog 01', created: new Date() });
 var id2 = fulltext.add('My second blog', { title: 'Blog 02', created: new Date() });
@@ -28,7 +28,7 @@ fulltext.find('mail', { take: 10, skip: 0 }, function(count, docs) {
 
 ```
 
-### fulltext.add(text, document, [callback], [maximum words (default 200)]);
+### fulltext.add(text, document, [callback], [maximum words]);
 
 Add text to a fulltext database.
 
