@@ -27,7 +27,7 @@ function Fulltext(name, directory) {
 	this.name = name;
 	this.directory = directory;
 	this.isReady = false;
-	this.fs = new FulltextFile(this, name, directory, path.join(directory, name));
+	this.fs = new FulltextFile(this, name, directory, path.join(directory, name + '-fulltext'));
 	this.isReady = false;
 }
 
@@ -72,14 +72,12 @@ Fulltext.prototype.onRemove = function(id, callback) {
 
 Fulltext.prototype.onDrop = function(callback) {
 	var self = this;
-
 	if (!self.isReady) {
 		setTimeout(function() {
 			self.onDrop(callback);
 		}, 500);
 		return;
 	}
-
 	self.fs.drop(callback);
 };
 
@@ -241,12 +239,15 @@ FulltextFile.prototype.update = function(id, keywords, document, callback) {
 FulltextFile.prototype.drop = function(callback) {
 	var self = this;
 
+	self.engine.isReady = false;
+
 	fs.unlink(self.filename, noop);
 	fs.unlink(self.filenameCache, noop);
 
 	fs.readdir(self.documents, function(err, arr) {
 
 		if (err) {
+			self.engine.isReady = true;
 			callback(err);
 			return;
 		}
@@ -254,6 +255,7 @@ FulltextFile.prototype.drop = function(callback) {
 		arr.waiting(function(filename, next) {
 			fs.unlink(path.join(self.documents, filename), next);
 		}, function() {
+			self.engine.isReady = true;
 			callback(null);
 		});
 	});

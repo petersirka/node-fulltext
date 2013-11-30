@@ -28,7 +28,7 @@ fulltext.find('mail', { take: 10, skip: 0 }, function(count, docs) {
 
 ```
 
-### fulltext.add(text, document);
+### fulltext.add(text, document, [callback], [maximum words (default 200)]);
 
 Add text to a fulltext database.
 
